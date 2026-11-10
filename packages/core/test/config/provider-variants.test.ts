@@ -20,8 +20,7 @@ import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "../plugin/fixture"
 
 // Each case loads a small models.dev catalog through the real catalog plugin, applies config and plugin edits,
-// then compiles the selected variant's request offline. Cases marked `failing` record the expected request for
-// configurations whose variants are still spelled for a package or limit the model no longer has.
+// then compiles the selected variant's request offline.
 
 const it = testEffect(PluginTestLayer)
 const decode = Schema.decodeUnknownSync(Info)
@@ -281,7 +280,7 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("spells an alias's inherited model for the alias package", () =>
+  it.effect("spells an alias's inherited model for the alias package", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* configure([doc({ "google-ix": { canonical: "google", package: INTERACTIONS, models: { [gemini]: {} } } })])
@@ -289,7 +288,7 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("respells a listed model when its provider package changes in place", () =>
+  it.effect("respells a listed model when its provider package changes in place", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* configure([doc({ google: { package: INTERACTIONS, models: { [gemini]: {} } } })])
@@ -297,7 +296,7 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("respells unlisted models when their provider package changes in place", () =>
+  it.effect("respells unlisted models when their provider package changes in place", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* configure([doc({ google: { package: INTERACTIONS } })])
@@ -305,7 +304,7 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("keeps the catalog effort list when a model's own package changes", () =>
+  it.effect("keeps the catalog effort list when a model's own package changes", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* configure([doc({ google: { models: { [gemini]: { package: INTERACTIONS } } } })])
@@ -313,7 +312,7 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("still respells when a config variant only adds a header", () =>
+  it.effect("still respells when a config variant only adds a header", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* configure([
@@ -333,7 +332,7 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("merges a plugin variant into the default with the same id", () =>
+  it.effect("merges a plugin variant into the default with the same id", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* editModel((model) => {
@@ -353,17 +352,17 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("lets a plugin narrow the catalog reasoning", () =>
+  it.effect("lets a plugin narrow the catalog reasoning", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* editModel((model) => {
-        Object.assign(model, { reasoning: [{ type: "effort", values: ["high"] }] })
+        model.reasoning = [{ type: "effort", values: ["high"] }]
       })
       expect((yield* request("google", gemini, "high")).variants).toEqual(["high"])
     }),
   )
 
-  it.effect.failing("sizes budget variants for a lowered output limit", () =>
+  it.effect("sizes budget variants for a lowered output limit", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* configure([doc({ anthropic: { models: { [claude]: { limit: { output: 8000 } } } } })])
@@ -377,7 +376,7 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("spells Azure Chat variants when the provider uses completion URLs", () =>
+  it.effect("spells Azure Chat variants when the provider uses completion URLs", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* configure([doc({ azure: { settings: { resourceName: "example", useCompletionUrls: true } } })])
@@ -391,7 +390,7 @@ describe("catalog variants after config and plugin edits", () => {
     }),
   )
 
-  it.effect.failing("spells an integration document's model for its package", () =>
+  it.effect("spells an integration document's model for its package", () =>
     withEnv({ OPENCODE_API_KEY: "test" }, () =>
       Effect.gen(function* () {
         yield* seed()
@@ -419,7 +418,7 @@ describe("catalog variants after config and plugin edits", () => {
     ),
   )
 
-  it.effect.failing("spells a custom model under an alias for the alias's host", () =>
+  it.effect("spells a custom model under an alias for the alias's host", () =>
     Effect.gen(function* () {
       yield* seed()
       yield* configure([doc({ "my-nvidia": { canonical: "nvidia", models: { "qwen/custom": {} } } })])
