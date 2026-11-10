@@ -10,6 +10,7 @@ import {
   resourceUrlFromServerUrl,
   UnauthorizedError,
   type FetchLike,
+  type OAuthClientInformationContext,
   type OAuthClientProvider,
   type OAuthDiscoveryState,
   type StoredOAuthClientInformation,
@@ -41,6 +42,9 @@ type Refresh = (send: FetchLike, url: string | URL, init: RequestInit, token: st
 
 // Providers backed by a stored credential refresh under its cross-process lock; see connectProvider.
 const lockedRefreshes = new WeakMap<OAuthClientProvider, Refresh>()
+
+// Like provider logins: a stored access token this close to expiry is refreshed before it is sent.
+const REFRESH_AHEAD = 5 * 60 * 1000
 
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
 
@@ -155,7 +159,7 @@ const configuredDiscovery = async (input: {
 }
 
 interface Store {
-  readonly tokens: () => Promise<StoredOAuthTokens | undefined>
+  readonly tokens: (ctx?: OAuthClientInformationContext) => Promise<StoredOAuthTokens | undefined>
   readonly saveTokens: (tokens: StoredOAuthTokens) => Promise<void>
   readonly clientInformation: () => Promise<StoredOAuthClientInformation | undefined>
   readonly saveClientInformation: (info: StoredOAuthClientInformation) => Promise<void>
@@ -229,7 +233,7 @@ const provider = (options: Options): OAuthClientProvider => {
       return stored
     },
     saveClientInformation: (info) => options.store.saveClientInformation(info),
-    tokens: () => options.store.tokens(),
+    tokens: (ctx) => options.store.tokens(ctx),
     saveTokens: (tokens) => options.store.saveTokens(tokens),
     redirectToAuthorization: (url) => {
       if (!redirect) throw refuse("user authorization")
@@ -283,7 +287,7 @@ const toCredential = (input: {
     methodID: input.methodID,
     access: input.tokens.access_token,
     refresh: input.tokens.refresh_token ?? "",
-    // 0 is non-expiring; toTokens then omits expires_in so the SDK does not force a refresh.
+    // 0 means the server gave no lifetime: toTokens omits expires_in and the token is never refreshed ahead.
     expires: input.tokens.expires_in ? Date.now() + input.tokens.expires_in * 1000 : 0,
     metadata: {
       serverUrl: input.serverUrl,
@@ -384,6 +388,34 @@ export const connectProvider = Effect.fnUntraced(function* (input: {
           ),
         ),
     )
+  const lockedFetch = yield* sender(refresh)
+  // Concurrent requests wait for one refresh ahead of expiry. A failure keeps the current token: a 401
+  // then still runs the SDK's own refresh.
+  let ahead: Promise<unknown> | undefined
+  const refreshAhead = () => {
+    ahead ??= run(
+      Effect.tryPromise({
+        try: () => auth(result, { serverUrl: input.config.url, fetchFn: lockedFetch }),
+        catch: (error) => error,
+      }).pipe(
+        Effect.andThen(Effect.logInfo("mcp oauth refreshed ahead of expiry", { credentialID: id })),
+        Effect.catch((error) =>
+          Effect.logWarning("mcp oauth refresh ahead of expiry failed", {
+            credentialID: id,
+            errors: ErrorSummary.from(error),
+          }),
+        ),
+      ),
+    ).finally(() => {
+      ahead = undefined
+    })
+    return ahead
+  }
+  const stored = async () => {
+    const oauth = await read()
+    if (oauth) presented = oauth.refresh
+    return oauth
+  }
   const result = provider({
     config: input.config,
     fetch,
@@ -395,11 +427,15 @@ export const connectProvider = Effect.fnUntraced(function* (input: {
       await run(credentials.remove(id))
     },
     store: {
-      tokens: async () => {
-        const oauth = await read()
-        if (!oauth) return undefined
-        presented = oauth.refresh
-        return toTokens(oauth)
+      // Only the transport's per-request header read passes no context; auth() passes the issuer and
+      // refreshes on its own, so refreshing ahead there would refresh twice.
+      tokens: async (ctx) => {
+        const oauth = await stored()
+        if (ctx !== undefined || !oauth?.refresh || !oauth.expires || oauth.expires > Date.now() + REFRESH_AHEAD)
+          return oauth && toTokens(oauth)
+        await refreshAhead()
+        const latest = await stored()
+        return latest && toTokens(latest)
       },
       saveTokens: async (tokens) => {
         const previous = await read()
